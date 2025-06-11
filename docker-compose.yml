@@ -1,0 +1,88 @@
+name: 4yousee-infra
+services:
+    4yousee-api:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        image: 4yousee-api
+        container_name: 4yousee-api
+        hostname: 4yousee-api
+        environment:
+            APP_ENV: ${APP_ENV:-dev}
+        ports:
+            - "3001:80"
+
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost/health"]
+            interval: 5s
+            timeout: 30s
+            retries: 5
+            start_period: 40s
+            start_interval: 5s
+        volumes:
+            - .:/home/www-data
+        depends_on:
+            - 4yousee-database
+            - 4yousee-storage-init
+            - 4yousee-queue
+    4yousee-queue-consumer:
+        image: 4yousee-api
+        container_name: 4yousee-consumer
+        hostname: 4yousee-consumer
+        environment:
+            APP_ENV: ${APP_ENV:-dev}
+        command: /bin/bash /start/queue_consumer.sh
+        restart: unless-stopped
+        volumes:
+            - .:/home/www-data
+        depends_on:
+            - 4yousee-api
+    4yousee-database:
+        image: postgres:17.5-alpine
+        container_name: 4yousee-database
+        hostname: 4yousee-database
+        ports:
+            - "5433:5432"
+        environment:
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-j7Ij5BEltwXa71htsCbtBsSMF1XN2H}
+            POSTGRES_HOST_AUTH_METHOD: trust
+            POSTGRES_DB: app
+    4yousee-storage:
+        image: minio/minio
+        container_name: 4yousee-storage
+        hostname: 4yousee-storage
+        command: server /data
+        environment:
+            - MINIO_ROOT_USER=${AWS_SECRET_ACCESS_KEY:-root}
+            - MINIO_ROOT_PASSWORD=${AWS_ACCESS_KEY_ID:-d163UML2Y1vP}
+            - MINIO_CONSOLE_ADDRESS=:9001
+        ports:
+            - 9000:9000
+            - 9001:9001
+    4yousee-storage-init:
+        image: minio/mc
+        container_name: 4yousee-storage-init
+        depends_on:
+            - 4yousee-storage
+        entrypoint: >
+            /bin/sh -c "
+                sleep 5;
+                mc alias set local http://4yousee-storage:9000 ${AWS_SECRET_ACCESS_KEY:-root} ${AWS_ACCESS_KEY_ID:-d163UML2Y1vP} &&
+                mc mb local/videos;
+                mc anonymous set download local/videos;
+                echo 'Minio inicializado';
+                exit 0
+            "
+    4yousee-queue:
+        image: rabbitmq:4-management-alpine
+        container_name: 4yousee-queue
+        hostname: 4yousee-queue
+        ports:
+            - 9002:15672
+        environment:
+            - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-mquser}
+            - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-am7kFaRTXA7SI8UP7w7f}
+
+networks:
+  default:
+    name: 4yousee-network
